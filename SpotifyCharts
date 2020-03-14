@@ -1,0 +1,106 @@
+from bs4 import BeautifulSoup
+import requests
+import pandas as pd
+from datetime import timedelta, date
+import operator
+import xlsxwriter
+ ## CREDIT TO spotifycharts.com FOR ALL DATA
+
+
+######################################DATE ITERATOR(CHOOSE YOUR DATE RANGE FOR A SONG HERE)##########################################
+def daterange(start_date, end_date):
+    for n in range(int ((end_date - start_date).days)):
+        yield start_date + timedelta(n)
+SongListList = []
+start_date = date(2018, 5, 30)###START DATE(no leading zeros)########
+end_date = date(2020, 1, 1)### END DATE######
+###############################################################################################
+
+
+##########STREAMIFY: Returns a spotify chart of the date(YYYY-MM-DD) and country(3166 alpha 2 code) specified.##########################
+def streamify(date, country):
+    url =  "https://spotifycharts.com/regional/"+country+"/daily/"+date
+    print(url)
+    response = requests.get(url, timeout = 5)
+    content = BeautifulSoup(response.content, 'html.parser')
+    boxes = content.findAll('tr') #Boxes that contain song name, pos, streams, etc. But mostly using it to find the shaapes that represent trends
+    SongName = content.findAll('td', attrs={"class": "chart-table-track"}) #List of song Name + artist
+    songPos = content.findAll('td', attrs={"class": "chart-table-position"}) #song position
+    songStrs = content.findAll('td', attrs={"class": "chart-table-streams"})# Song streams
+    songTrend = content.findAll('td', attrs={"class": "chart-table-trend"})# Song trends represented by shapes
+
+    class Song:## Song object contains
+        def __init__(self, pos, trend, name, artist, streams, date, country):
+            self.pos = pos
+            self.trend = trend
+            self.name = name
+            self.artist = artist
+            self.streams = streams
+            self.date = date
+            self.country = country
+        def __repr__(self):
+            return (self.pos +" "+ self.trend+" " +self.name+" " + self.artist+" "+self.streams+" "+ self.date + " "+ self.country)
+    SongList = []
+
+    for i in range(0, len(SongName)):
+        name  = SongName[i].find("strong").text
+        artist = SongName[i].find("span").text[3:]
+        pos =  songPos[i].text
+        streams = songStrs[i].text
+        m = Song(pos, "-", name, artist, streams, date, country)
+        SongList.append(m)
+    trendlist = []
+    for i in range (1, len(boxes)):
+        if boxes[i].find("circle")!= None:
+            trend = "●"  ### MARKER FOR A SONG THAT DEBUTED ON THIS CHART
+        elif boxes[i].find("polygon", attrs ={"points":"0 9 12 9 6 3 "}):
+            trend = "▲" ### MARKER FOR SONG THAT INCREASED FROM ANOTHER PREVIOUS POSITION
+        elif boxes[i].find("polygon", attrs = {"points":"12 3 0 3 6 9 "}):
+            trend = "▼"### MARKER FOR SONG THAT DECREASED FROM PREV. POSITION
+        else:
+            trend = "-"###MARKER FOR NO CHANGE IN THIS SONG FROM PREV POSITION
+        trendlist.append(trend)
+
+    for i in range (0, len(trendlist)):
+        SongList[i].trend = trendlist[i]
+
+    return SongList
+
+for single_date in daterange(start_date, end_date):
+    SongListList.append(streamify(single_date.strftime("%Y-%m-%d"), "global"))
+SuperList=[]
+workbook = xlsxwriter.Workbook('XOTOUR')
+worksheet = workbook.add_worksheet()
+worksheet.write('A1', 'day')
+worksheet.write('B1', 'pos')
+worksheet.write('C1', 'trend')
+worksheet.write('D1', 'name')
+worksheet.write('E1', 'artist')
+worksheet.write('F1', 'streams')
+worksheet.write('G1', 'date')
+worksheet.write('H1', 'country')
+row = 1
+for i in range(0, len(SongListList)):
+    SongListList[i]= sorted(SongListList[i], key=operator.attrgetter('name'))
+    found = False
+    for j in range(0, len(SongListList[i])):
+        if SongListList[i][j].name == "XO Tour Llif3":
+            found = True
+            t = SongListList[i][j]
+            worksheet.write(row,1, t.pos)
+            worksheet.write(row,2, t.trend)
+            worksheet.write(row,3, t.name)
+            worksheet.write(row,4, t.artist)
+            worksheet.write(row,5, float(t.streams.replace(',','')))
+            worksheet.write(row,6, t.date)
+            worksheet.write(row,7, t.country)
+            worksheet.write(row,0, i)
+            SuperList.append(SongListList[i])
+            print(SongListList[i][j])
+            row+=1
+        if found == False:
+            for m in range(1, 7):
+                worksheet.write(row,m, "")
+            worksheet.write(row, 0, i)
+
+workbook.close()
